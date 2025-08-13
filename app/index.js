@@ -1,109 +1,138 @@
-// .envは不要（Deno Deployの「Settings → Environment Variables」でTOKENを設定してください）
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "npm:discord.js@14";
 
-import "https://deno.land/std@0.224.0/dotenv/load.ts"; // ローカル開発用（Deno Deployでは無視される）
-import { Client, GatewayIntentBits } from "npm:discord.js@14.15.3";
+const TOKEN = Deno.env.get("DISCORD_TOKEN")!;
+const CLIENT_ID = Deno.env.get("CLIENT_ID")!;
+const GUILD_ID = Deno.env.get("GUILD_ID")!;
 
-// Deno KV 初期化
-const kv = await Deno.openKv();
-
-// ロール名（事前にDiscordサーバーで作成しておく）
-const ROLE_TOP1 = "TOP 1";
-const ROLE_TOP2 = "TOP 2";
-const ROLE_TOP3 = "TOP 3";
-const ROLE_TOP10 = "TOP 10";
-
+// ===== Botクライアント =====
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-    ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-client.once("ready", () => {
-    console.log(`✅ ログイン完了: ${client.user.tag}`);
+// ===== スラッシュコマンド登録 =====
+const commands = [
+  new SlashCommandBuilder()
+    .setName("dps")
+    .setDescription("DPSを登録します（例: /dps 700 ud）")
+    .addNumberOption((option) =>
+      option.setName("数値").setDescription("DPSの数値部分（例: 700）").setRequired(true)
+    )
+    .addStringOption((option) =>
+      option.setName("単位").setDescription("単位（例: ud, dc）").setRequired(true)
+    ),
+  new SlashCommandBuilder().setName("ranking").setDescription("DPSランキングを表示します"),
+];
+
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+  body: commands.map((cmd) => cmd.toJSON()),
 });
 
-// メッセージ処理
-client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
+// ===== KVストア操作 =====
+const kv = globalThis.__DENO_KV;
 
-    const args = message.content.trim().split(/\s+/);
-    const command = args[0].toLowerCase();
-
-    // DPS登録コマンド
-    if (command === "!dps") {
-        if (!args[1] || isNaN(args[1])) {
-            return message.reply("⚠️ 数値を入力してください。\n例: `!dps 12345`");
-        }
-        const dpsValue = parseFloat(args[1]);
-        await kv.set(["dps", message.author.id], dpsValue);
-        await updateRankingRoles(message.guild);
-        message.reply(`✅ あなたのDPSを **${dpsValue}** に更新しました！`);
-    }
-
-    // ランキング表示
-    if (command === "!rank") {
-        const allEntries = [];
-        for await (const entry of kv.list({ prefix: ["dps"] })) {
-            allEntries.push([entry.key[1], entry.value]); // [userId, dps]
-        }
-
-        const sorted = allEntries.sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-        if (sorted.length === 0) return message.reply("📊 登録者がまだいません。");
-
-        const rankText = sorted
-            .map(([userId, dps], index) => `#${index + 1} <@${userId}> - **${dps}** DPS`)
-            .join("\n");
-
-        message.channel.send(`🏆 **DPSランキング（上位10位）**\n${rankText}`);
-    }
-});
-
-// ロール更新処理
-async function updateRankingRoles(guild) {
-    const allEntries = [];
-    for await (const entry of kv.list({ prefix: ["dps"] })) {
-        allEntries.push([entry.key[1], entry.value]);
-    }
-
-    const sorted = allEntries.sort((a, b) => b[1] - a[1]);
-
-    const top1 = sorted[0]?.[0];
-    const top2 = sorted[1]?.[0];
-    const top3 = sorted[2]?.[0];
-    const top10 = sorted.slice(0, 10).map(([id]) => id);
-
-    const role1 = guild.roles.cache.find(r => r.name === ROLE_TOP1);
-    const role2 = guild.roles.cache.find(r => r.name === ROLE_TOP2);
-    const role3 = guild.roles.cache.find(r => r.name === ROLE_TOP3);
-    const role10 = guild.roles.cache.find(r => r.name === ROLE_TOP10);
-
-    if (!role1 || !role2 || !role3 || !role10) {
-        console.error("❌ ロールが見つかりません。");
-        return;
-    }
-
-    // 全員のロールを初期化
-    for (const member of guild.members.cache.values()) {
-        await member.roles.remove([role1, role2, role3, role10]).catch(() => {});
-    }
-
-    // 上位にロール付与
-    if (top1) guild.members.cache.get(top1)?.roles.add(role1).catch(() => {});
-    if (top2) guild.members.cache.get(top2)?.roles.add(role2).catch(() => {});
-    if (top3) guild.members.cache.get(top3)?.roles.add(role3).catch(() => {});
-    for (const id of top10) {
-        guild.members.cache.get(id)?.roles.add(role10).catch(() => {});
-    }
+// ユーザーデータを保存
+async function saveUserDps(userId: string, data: { value: number; unit: string; name: string }) {
+  await kv.set(["dps", userId], data);
 }
 
-client.login(Deno.env.get("TOKEN"));
+// すべてのDPSデータを取得
+async function getAllDps() {
+  const list: { key: string; value: { value: number; unit: string; name: string } }[] = [];
+  for await (const entry of kv.list({ prefix: ["dps"] })) {
+    list.push({ key: entry.key[1], value: entry.value });
+  }
+  return list;
+}
+
+// ===== コマンド処理 =====
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "dps") {
+    const value = interaction.options.getNumber("数値", true);
+    const unit = interaction.options.getString("単位", true);
+
+    await saveUserDps(interaction.user.id, {
+      value,
+      unit,
+      name: interaction.user.username,
+    });
+
+    await interaction.reply(`✅ ${interaction.user.username} さんのDPSを **${value}${unit}** で登録しました！`);
+
+    await updateRoles(interaction.guild!);
+  }
+
+  if (interaction.commandName === "ranking") {
+    const allDps = await getAllDps();
+    const sorted = allDps.sort((a, b) => b.value.value - a.value.value);
+
+    let msg = "🏆 **DPSランキング** 🏆\n";
+    sorted.forEach((user, i) => {
+      let medal = "";
+      if (i === 0) medal = "🥇";
+      else if (i === 1) medal = "🥈";
+      else if (i === 2) medal = "🥉";
+      msg += `${i + 1}位 ${medal} **${user.value.name}** — ${user.value.value}${user.value.unit}\n`;
+    });
+
+    await interaction.reply(msg);
+  }
+});
+
+// ===== ロール更新処理 =====
+async function updateRoles(guild) {
+  const allDps = await getAllDps();
+  const sorted = allDps.sort((a, b) => b.value.value - a.value.value);
+
+  const topRoles = {
+    0: "Top 1 🥇",
+    1: "Top 2 🥈",
+    2: "Top 3 🥉",
+  };
+  const top10Role = "Top 10";
+
+  await guild.roles.fetch();
+  await guild.members.fetch();
+
+  for (const [index, userEntry] of sorted.entries()) {
+    const userId = userEntry.key;
+    const userData = userEntry.value;
+
+    const member = guild.members.cache.get(userId);
+    if (!member) continue;
+
+    // 既存トップロール削除
+    for (const r of Object.values(topRoles)) {
+      const role = guild.roles.cache.find((role) => role.name === r);
+      if (role && member.roles.cache.has(role.id)) {
+        await member.roles.remove(role);
+      }
+    }
+    const role10 = guild.roles.cache.find((role) => role.name === top10Role);
+    if (role10 && member.roles.cache.has(role10.id)) {
+      await member.roles.remove(role10);
+    }
+
+    // 新しいロール付与
+    if (topRoles[index]) {
+      const roleName = topRoles[index];
+      const role = guild.roles.cache.find((role) => role.name === roleName);
+      if (role) await member.roles.add(role);
+    } else if (index < 10) {
+      const role = guild.roles.cache.find((role) => role.name === top10Role);
+      if (role) await member.roles.add(role);
+    }
+  }
+}
+
+client.login(TOKEN);
 
 Deno.cron("Continuous Request", "*/2 * * * *", () => {
     console.log("running...");
 });
+
 
 
