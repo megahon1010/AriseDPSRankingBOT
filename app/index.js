@@ -4,17 +4,16 @@ const TOKEN = Deno.env.get("TOKEN");
 const CLIENT_ID = Deno.env.get("CLIENT_ID");
 const GUILD_ID = Deno.env.get("GUILD_ID");
 
-// 環境変数チェック
 if (!TOKEN) throw new Error("DISCORD_TOKEN is not set");
 if (!CLIENT_ID) throw new Error("CLIENT_ID is not set");
 if (!GUILD_ID) throw new Error("GUILD_ID is not set");
-console.log("KVストア:", globalThis.__DENO_KV ? "有効" : "無効");
 
-
+// Discordクライアント準備
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
+// コマンド定義
 const commands = [
   new SlashCommandBuilder()
     .setName("dps")
@@ -30,6 +29,7 @@ const commands = [
     .setDescription("DPSランキングを表示します"),
 ];
 
+// スラッシュコマンド登録
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 console.log("Bot起動中...");
@@ -40,7 +40,8 @@ await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
   .then(() => console.log("スラッシュコマンド登録成功"))
   .catch(err => console.error("スラッシュコマンド登録失敗:", err));
 
-const kv = globalThis.__DENO_KV;
+// KVストア接続
+const kv = await Deno.openKv();
 
 async function saveUserDps(userId, data) {
   await kv.set(["dps", userId], data);
@@ -145,9 +146,11 @@ async function updateRoles(guild) {
 client.login(TOKEN);
 
 
+
 Deno.cron("Continuous Request", "*/2 * * * *", () => {
     console.log("running...");
 });
+
 
 
 
