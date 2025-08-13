@@ -1,31 +1,34 @@
-// index.js
-const { Client, GatewayIntentBits } = require('discord.js');
+// index.js (ESM形式対応・Discord.js v14対応)
+import { Client, GatewayIntentBits } from "discord.js";
+import dotenv from "dotenv";
+
+// .env読み込み
+dotenv.config();
+
+// Botクライアント作成
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.Guilds, // サーバーイベント
+        GatewayIntentBits.GuildMessages, // メッセージイベント
+        GatewayIntentBits.MessageContent // メッセージ内容取得
     ]
 });
 
-// .envからトークンを読み込む
-require('dotenv').config();
-
-// Botが起動したら一度だけ実行される
-client.once('ready', () => {
+// 起動時の処理
+client.once("ready", () => {
     console.log(`✅ ログイン完了: ${client.user.tag}`);
 });
 
-// メッセージを受け取ったときの処理
-client.on('messageCreate', (message) => {
+// メッセージ受信イベント
+client.on("messageCreate", (message) => {
     // Bot自身のメッセージは無視
     if (message.author.bot) return;
 
-    // "ping"と送られたら"pong"と返信
-    if (message.content === 'ping') {
-        message.reply('pong!');
+    if (message.content === "ping") {
+        message.reply("🏓 pong!");
     }
 });
 
-// BotをDiscordに接続
+// ログイン
 client.login(process.env.TOKEN);
+
