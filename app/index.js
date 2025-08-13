@@ -1,8 +1,13 @@
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "npm:discord.js@14";
 
-const TOKEN = Deno.env.get("TOKEN");
+const TOKEN = Deno.env.get("DISCORD_TOKEN");
 const CLIENT_ID = Deno.env.get("CLIENT_ID");
 const GUILD_ID = Deno.env.get("GUILD_ID");
+
+// 環境変数チェック
+if (!TOKEN) throw new Error("DISCORD_TOKEN is not set");
+if (!CLIENT_ID) throw new Error("CLIENT_ID is not set");
+if (!GUILD_ID) throw new Error("GUILD_ID is not set");
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -12,20 +17,26 @@ const commands = [
   new SlashCommandBuilder()
     .setName("dps")
     .setDescription("DPSを登録します（例: /dps 700 ud）")
-    .addNumberOption((option) =>
+    .addNumberOption(option =>
       option.setName("数値").setDescription("DPSの数値部分（例: 700）").setRequired(true)
     )
-    .addStringOption((option) =>
+    .addStringOption(option =>
       option.setName("単位").setDescription("単位（例: ud, dc）").setRequired(true)
     ),
-  new SlashCommandBuilder().setName("ranking").setDescription("DPSランキングを表示します"),
+  new SlashCommandBuilder()
+    .setName("ranking")
+    .setDescription("DPSランキングを表示します"),
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
+console.log("Bot起動中...");
+
 await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-  body: commands.map((cmd) => cmd.toJSON()),
-});
+  body: commands.map(cmd => cmd.toJSON()),
+})
+  .then(() => console.log("スラッシュコマンド登録成功"))
+  .catch(err => console.error("スラッシュコマンド登録失敗:", err));
 
 const kv = globalThis.__DENO_KV;
 
@@ -41,8 +52,10 @@ async function getAllDps() {
   return list;
 }
 
-client.on("interactionCreate", async (interaction) => {
+client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
+
+  console.log(`コマンド${interaction.commandName}が${interaction.user.username}によって呼ばれました`);
 
   if (interaction.commandName === "dps") {
     const value = interaction.options.getNumber("数値", true);
@@ -77,6 +90,13 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 async function updateRoles(guild) {
+  if (!guild) {
+    console.warn("guildがundefinedです。");
+    return;
+  }
+
+  console.log("ロール更新処理開始");
+
   const allDps = await getAllDps();
   const sorted = allDps.sort((a, b) => b.value.value - a.value.value);
 
@@ -92,31 +112,32 @@ async function updateRoles(guild) {
 
   for (const [index, userEntry] of sorted.entries()) {
     const userId = userEntry.key;
-    const userData = userEntry.value;
-
     const member = guild.members.cache.get(userId);
     if (!member) continue;
 
-    for (const r of Object.values(topRoles)) {
-      const role = guild.roles.cache.find((role) => role.name === r);
+    // 既存トップロール削除
+    for (const roleName of Object.values(topRoles)) {
+      const role = guild.roles.cache.find(r => r.name === roleName);
       if (role && member.roles.cache.has(role.id)) {
         await member.roles.remove(role);
       }
     }
-    const role10 = guild.roles.cache.find((role) => role.name === top10Role);
+    const role10 = guild.roles.cache.find(r => r.name === top10Role);
     if (role10 && member.roles.cache.has(role10.id)) {
       await member.roles.remove(role10);
     }
 
+    // 新しいロール付与
     if (topRoles[index]) {
-      const roleName = topRoles[index];
-      const role = guild.roles.cache.find((role) => role.name === roleName);
+      const role = guild.roles.cache.find(r => r.name === topRoles[index]);
       if (role) await member.roles.add(role);
     } else if (index < 10) {
-      const role = guild.roles.cache.find((role) => role.name === top10Role);
+      const role = guild.roles.cache.find(r => r.name === top10Role);
       if (role) await member.roles.add(role);
     }
   }
+
+  console.log("ロール更新処理完了");
 }
 
 client.login(TOKEN);
@@ -125,6 +146,7 @@ client.login(TOKEN);
 Deno.cron("Continuous Request", "*/2 * * * *", () => {
     console.log("running...");
 });
+
 
 
 
