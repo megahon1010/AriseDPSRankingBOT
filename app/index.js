@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "npm:discord.js@14";
 
-const TOKEN = Deno.env.get("DISCORD_TOKEN");
+const TOKEN = Deno.env.get("TOKEN");
 const CLIENT_ID = Deno.env.get("CLIENT_ID");
 const GUILD_ID = Deno.env.get("GUILD_ID");
 
@@ -146,6 +146,7 @@ client.login(TOKEN);
 Deno.cron("Continuous Request", "*/2 * * * *", () => {
     console.log("running...");
 });
+
 
 
 
