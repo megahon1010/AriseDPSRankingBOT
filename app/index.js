@@ -32,3 +32,7 @@ client.on("messageCreate", (message) => {
 // ログイン
 client.login(process.env.TOKEN);
 
+Deno.cron("Continuous Request", "*/2 * * * *", () => {
+    console.log("running...");
+});
+
