@@ -8,6 +8,8 @@ const GUILD_ID = Deno.env.get("GUILD_ID");
 if (!TOKEN) throw new Error("DISCORD_TOKEN is not set");
 if (!CLIENT_ID) throw new Error("CLIENT_ID is not set");
 if (!GUILD_ID) throw new Error("GUILD_ID is not set");
+console.log("KVストア:", globalThis.__DENO_KV ? "有効" : "無効");
+
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -146,6 +148,7 @@ client.login(TOKEN);
 Deno.cron("Continuous Request", "*/2 * * * *", () => {
     console.log("running...");
 });
+
 
 
 
